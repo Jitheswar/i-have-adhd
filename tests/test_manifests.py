@@ -23,6 +23,22 @@ class ManifestSyncTest(unittest.TestCase):
                 "run python3 scripts/render_manifests.py",
             )
 
+    def test_package_json_declares_the_pi_package(self):
+        """Pi discovers the extension and skills through package.json's `pi` block.
+
+        Asserted here rather than in scripts/check_pi_extension.py so it runs
+        without the pi CLI installed, leaving that script a pure smoke test.
+        """
+        package = json.loads(render_manifests.SOURCE_PATH.read_text(encoding="utf8"))
+
+        self.assertEqual(
+            {
+                "extensions": ["./extensions/i-have-adhd.ts"],
+                "skills": ["./skills"],
+            },
+            package.get("pi"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -215,6 +215,23 @@ class Response:
     cost_usd: float | None
 
 
+@dataclass(frozen=True)
+class RunConfig:
+    """Typed parameters for one evaluation-condition run, decoupled from argparse."""
+
+    cases: Path
+    runner_config: Path
+    runner: str
+    condition: str
+    condition_skill: Path | None
+    case: list[str] | None
+    trials: int
+    retries: int
+    budget_usd: float
+    allow_unmetered: bool
+    output: Path
+
+
 class Runner(abc.ABC):
     """Invokes one provider's CLI recipe in isolation from the operator's own configuration."""
 
@@ -316,50 +333,52 @@ class Ledger:
         self._file.flush()
 
 
-def run_evaluations(args: argparse.Namespace, runner: Runner | None = None) -> int:
-    cases = load_cases(args.cases)
+def run_evaluations(config: RunConfig, runner: Runner | None = None) -> int:
+    cases = load_cases(config.cases)
     errors = validate_cases(cases)
     if errors:
         raise ValueError("\n".join(errors))
-    unknown = sorted(set(args.case or []) - {case["id"] for case in cases})
+    unknown = sorted(set(config.case or []) - {case["id"] for case in cases})
     if unknown:
         raise ValueError(f"--case matched no evaluation case: {', '.join(unknown)}")
 
     if runner is None:
-        config = json.loads(args.runner_config.read_text(encoding="utf-8"))
+        runner_config = json.loads(config.runner_config.read_text(encoding="utf-8"))
         runner = SubprocessRunner(
-            config[args.runner], retries=args.retries, allow_unmetered=args.allow_unmetered
+            runner_config[config.runner],
+            retries=config.retries,
+            allow_unmetered=config.allow_unmetered,
         )
 
     with Ledger(
-        args.output, condition=args.condition, runner=args.runner, budget_usd=args.budget_usd
+        config.output, condition=config.condition, runner=config.runner, budget_usd=config.budget_usd
     ) as ledger:
-        for trial in range(1, args.trials + 1):
+        for trial in range(1, config.trials + 1):
             for case in cases:
-                if args.case and case["id"] not in args.case:
+                if config.case and case["id"] not in config.case:
                     continue
-                key = (case["id"], trial, args.condition, args.runner)
+                key = (case["id"], trial, config.condition, config.runner)
                 if ledger.done(key):
-                    print(f"skip completed {args.condition} trial {trial}: {case['id']}")
+                    print(f"skip completed {config.condition} trial {trial}: {case['id']}")
                     continue
                 remaining = ledger.remaining()
                 if remaining <= 0:
                     print("Budget exhausted; stopping.", file=sys.stderr)
                     return 2
-                prompt = _condition_prompt(case["prompt"], args.condition, args.condition_skill)
+                prompt = _condition_prompt(case["prompt"], config.condition, config.condition_skill)
                 response = runner.invoke(prompt, remaining_budget=remaining)
                 ledger.record(
                     {
                         "case_id": case["id"],
                         "trial": trial,
-                        "condition": args.condition,
-                        "runner": args.runner,
+                        "condition": config.condition,
+                        "runner": config.runner,
                         "response": response.text,
                         "usage": response.usage,
                         "cost_usd": response.cost_usd,
                     }
                 )
-                print(f"{args.condition} trial {trial}: {case['id']}")
+                print(f"{config.condition} trial {trial}: {case['id']}")
         print(f"Reported cost: ${ledger.spent:.4f}")
     return 0
 
@@ -391,15 +410,28 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--budget-usd", type=float, default=25.0)
     run.add_argument("--allow-unmetered", action="store_true")
     run.add_argument("--output", type=Path, required=True)
-    run.set_defaults(handler=run_evaluations)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if hasattr(args, "handler"):
-        return args.handler(args)
+    if args.command == "run":
+        return run_evaluations(
+            RunConfig(
+                cases=args.cases,
+                runner_config=args.runner_config,
+                runner=args.runner,
+                condition=args.condition,
+                condition_skill=args.condition_skill,
+                case=args.case,
+                trials=args.trials,
+                retries=args.retries,
+                budget_usd=args.budget_usd,
+                allow_unmetered=args.allow_unmetered,
+                output=args.output,
+            )
+        )
     if args.command == "validate":
         errors = validate_cases(load_cases(args.cases))
         if errors:

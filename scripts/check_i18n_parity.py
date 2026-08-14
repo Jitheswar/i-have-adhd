@@ -9,7 +9,12 @@ translated; commands are not. This script does not try to translate or
 restructure anything -- it only asserts that a translated file has the same
 shape as the English source:
 
-  1. Same sequence of heading levels (heading *text* is expected to differ).
+  1. Same sequence of structure markers: heading levels and the <summary>
+     openers that delimit each harness's <details> section (heading and
+     summary *text* is expected to differ, so only the shape is compared).
+     Without the summary markers a whole harness section could go missing
+     from a translation unnoticed, since those sections use <summary>
+     rather than headings.
   2. Same sequence of fenced code blocks, by info-string language.
   3. For non-prose code blocks (bash/sh/text/json/...), the same command
      content line-for-line, ignoring inline "# ..." comments (those may be
@@ -30,10 +35,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# (english source, directory holding the translated files, glob for suffix)
-GROUPS = [
-    (ROOT / "INSTALL.md", ROOT / ".github" / "install", "INSTALL"),
-    (ROOT / "README.md", ROOT / ".github" / "readme", "README"),
+
+@dataclass(frozen=True)
+class Pair:
+    """An English source and the directory of translations to hold to its shape."""
+
+    english: Path
+    translated_dir: Path
+    stem: str
+
+    def translations(self) -> list[Path]:
+        return sorted(self.translated_dir.glob(f"{self.stem}.*.md"))
+
+
+PAIRS = [
+    Pair(ROOT / "INSTALL.md", ROOT / ".github" / "install", "INSTALL"),
+    Pair(ROOT / "README.md", ROOT / ".github" / "readme", "README"),
 ]
 
 # Fenced code blocks in this language are prose (e.g. the translated
@@ -41,7 +58,12 @@ GROUPS = [
 PROSE_LANGS = {"markdown"}
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
-FENCE_RE = re.compile(r"^```(\S*)\s*$")
+# CommonMark allows a fence to be indented by up to three spaces, e.g. inside
+# a list item. Anchoring at column 0 silently skipped those.
+FENCE_RE = re.compile(r"^ {0,3}```(\S*)\s*$")
+# Each harness gets a <details> block whose <summary> is its only title; these
+# sections carry no heading, so they are invisible to HEADING_RE.
+SUMMARY_RE = re.compile(r"^\s*<summary>")
 
 
 @dataclass
@@ -51,34 +73,41 @@ class CodeBlock:
     lines: list[str]
 
 
-def parse(path: Path) -> tuple[list[int], list[CodeBlock]]:
-    """Return (heading levels outside code fences, code blocks in order)."""
-    heading_levels: list[int] = []
+def parse(path: Path) -> tuple[list[str], list[CodeBlock]]:
+    """Return (structure markers outside code fences, code blocks in order).
+
+    A marker is ``h<level>`` for a Markdown heading or ``section`` for a
+    <summary> opener. Raises ValueError on an unterminated fence, which would
+    otherwise swallow the rest of the file without a word.
+    """
+    structure: list[str] = []
     blocks: list[CodeBlock] = []
-    in_fence = False
     current: CodeBlock | None = None
 
     for lineno, raw in enumerate(path.read_text(encoding="utf8").splitlines(), 1):
         fence = FENCE_RE.match(raw)
         if fence:
-            if not in_fence:
-                in_fence = True
+            if current is None:
                 current = CodeBlock(line=lineno, lang=fence.group(1), lines=[])
             else:
-                in_fence = False
-                assert current is not None
                 blocks.append(current)
                 current = None
             continue
-        if in_fence:
-            assert current is not None
+        if current is not None:
             current.lines.append(raw)
             continue
-        m = HEADING_RE.match(raw)
-        if m:
-            heading_levels.append(len(m.group(1)))
+        heading = HEADING_RE.match(raw)
+        if heading:
+            structure.append(f"h{len(heading.group(1))}")
+        elif SUMMARY_RE.match(raw):
+            structure.append("section")
 
-    return heading_levels, blocks
+    if current is not None:
+        raise ValueError(
+            f"{path}:{current.line}: code fence is never closed"
+        )
+
+    return structure, blocks
 
 
 def strip_comment(line: str) -> str:
@@ -94,16 +123,43 @@ def strip_comment(line: str) -> str:
     return "".join(out).rstrip()
 
 
+def _first_divergence(
+    en_path: Path,
+    en_structure: list[str],
+    other_path: Path,
+    other_structure: list[str],
+) -> str:
+    """Describe the first marker that differs, so the whole list need not be read."""
+    for i, (en_marker, other_marker) in enumerate(zip(en_structure, other_structure)):
+        if en_marker != other_marker:
+            return (
+                f"marker #{i + 1} is {en_marker!r} in {en_path.name} but "
+                f"{other_marker!r} in {other_path.name}"
+            )
+
+    shared = min(len(en_structure), len(other_structure))
+    longer, longer_path = (
+        (en_structure, en_path)
+        if len(en_structure) > len(other_structure)
+        else (other_structure, other_path)
+    )
+    return (
+        f"the first {shared} markers agree; {longer_path.name} then has an "
+        f"extra {longer[shared]!r}"
+    )
+
+
 def compare(en_path: Path, other_path: Path) -> list[str]:
     errors: list[str] = []
-    en_headings, en_blocks = parse(en_path)
-    other_headings, other_blocks = parse(other_path)
+    en_structure, en_blocks = parse(en_path)
+    other_structure, other_blocks = parse(other_path)
 
-    if en_headings != other_headings:
+    if en_structure != other_structure:
         errors.append(
-            f"heading structure differs: {en_path.name} has {len(en_headings)} "
-            f"headings {en_headings}, {other_path.name} has {len(other_headings)} "
-            f"headings {other_headings}"
+            f"structure differs: {en_path.name} has {len(en_structure)} markers "
+            f"(headings + <details> sections), {other_path.name} has "
+            f"{len(other_structure)}. First divergence: "
+            + _first_divergence(en_path, en_structure, other_path, other_structure)
         )
 
     if len(en_blocks) != len(other_blocks):
@@ -144,26 +200,35 @@ def compare(en_path: Path, other_path: Path) -> list[str]:
 def main() -> int:
     all_errors: list[str] = []
 
-    for en_path, translated_dir, stem in GROUPS:
-        if not en_path.exists():
-            all_errors.append(f"missing source file: {en_path}")
+    for pair in PAIRS:
+        if not pair.english.exists():
+            all_errors.append(f"missing source file: {pair.english}")
             continue
-        translated_files = sorted(translated_dir.glob(f"{stem}.*.md"))
+        translated_files = pair.translations()
         if not translated_files:
-            all_errors.append(f"no translated files found under {translated_dir}")
+            all_errors.append(
+                f"no translated files found under {pair.translated_dir}"
+            )
             continue
         for other_path in translated_files:
-            errors = compare(en_path, other_path)
+            try:
+                errors = compare(pair.english, other_path)
+            except ValueError as error:
+                errors = [str(error)]
             if errors:
-                all_errors.append(f"--- {other_path.relative_to(ROOT)} vs {en_path.relative_to(ROOT)} ---")
+                all_errors.append(
+                    f"--- {other_path.relative_to(ROOT)} vs "
+                    f"{pair.english.relative_to(ROOT)} ---"
+                )
                 all_errors.extend(errors)
 
     if all_errors:
         print("i18n parity check failed:\n", file=sys.stderr)
         print("\n".join(all_errors), file=sys.stderr)
         print(
-            "\nHeading structure and code blocks must match the English source "
-            "(prose and comments may be translated; commands may not).",
+            "\nStructure (headings and <details> sections) and code blocks must "
+            "match the English source (prose and comments may be translated; "
+            "commands may not).",
             file=sys.stderr,
         )
         return 1

@@ -68,7 +68,9 @@ TARGETS: list[tuple[str, list[tuple[str, str]]]] = [
             ("author", "author"),
             ("homepage", "homepage"),
             ("license", "license"),
+            ("repository", "homepage"),
             ("interface.developerName", "author.name"),
+            ("interface.websiteURL", "homepage"),
         ],
     ),
     (
@@ -110,7 +112,11 @@ def _set(data: Any, dotted_path: str, value: Any) -> None:
         key: Any = int(segment) if segment.isdigit() else segment
         node = node[key]
     last: Any = int(segments[-1]) if segments[-1].isdigit() else segments[-1]
-    if last not in node if isinstance(node, dict) else last >= len(node):
+    if isinstance(node, dict):
+        missing = last not in node
+    else:
+        missing = last >= len(node)
+    if missing:
         raise KeyError(
             f"{dotted_path!r} does not exist yet; add the field by hand once, "
             "then let this script keep it in sync"

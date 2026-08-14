@@ -2,13 +2,15 @@
 # Install: copy to ~/.gemini/commands/i-have-adhd.toml, then type /i-have-adhd.
 # Self-contained so it works as a global command from any directory.
 #
-# Generated from skills/i-have-adhd/SKILL.md by scripts/render_gemini_command.py.
-# Do not hand-edit the prompt below: edit SKILL.md, then run
+# Generated from skills/i-have-adhd/rules.md by scripts/render_gemini_command.py.
+# Do not hand-edit the prompt below: edit SKILL.md, run
+#   node scripts/generate_rules.mjs
+# then
 #   python3 scripts/render_gemini_command.py
 
 description = "ADHD-friendly output: action-first, numbered steps, no preamble or closers."
 
-prompt = """
+prompt = '''
 # i-have-adhd
 
 The reader has ADHD. Output is not just brief. It is shaped so an ADHD brain can act on it.
@@ -141,4 +143,4 @@ Then verify: if the reader reads only the first line and the last line, do they 
 If yes, send.
 
 {{args}}
-"""
+'''

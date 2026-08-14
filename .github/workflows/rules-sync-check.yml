@@ -2,9 +2,10 @@ name: rules.md in sync
 
 # Fails if skills/i-have-adhd/rules.md drifts from the output of
 # scripts/generate_rules.mjs. rules.md is the single parsed copy of the
-# ruleset body; the four injection adapters (hooks/always-on.mjs,
-# hooks/always-on.sh, hooks/always-on.ps1, extensions/i-have-adhd.ts) read
-# it directly instead of each parsing SKILL.md's frontmatter themselves.
+# ruleset body; the five entry points (hooks/always-on.mjs,
+# hooks/always-on.sh, hooks/always-on.ps1, extensions/i-have-adhd.ts,
+# scripts/render_gemini_command.py) read it directly instead of each parsing
+# SKILL.md's frontmatter themselves.
 on:
   pull_request:
     paths:
@@ -29,11 +30,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Regenerate rules.md and fail on drift
-        run: |
-          cp skills/i-have-adhd/rules.md /tmp/rules.md.committed
-          node scripts/generate_rules.mjs
-          cmp skills/i-have-adhd/rules.md /tmp/rules.md.committed || {
-            echo "::error::rules.md is out of sync. Run: node scripts/generate_rules.mjs"
-            exit 1
-          }
+      - name: Fail if rules.md is out of sync with SKILL.md
+        run: node scripts/generate_rules.mjs --check

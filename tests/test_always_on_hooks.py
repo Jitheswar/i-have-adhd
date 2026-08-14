@@ -91,6 +91,31 @@ class AlwaysOnHookTest(unittest.TestCase):
 
         self.assertEqual(1, len(set(outputs.values())))
 
+    def test_banner_comes_from_banner_file_verbatim(self):
+        # The banner is single-sourced in hooks/banner.txt with a
+        # {{FLAG_PATH}} placeholder. Each runtime must splice its own flag
+        # path into that file's text verbatim rather than embedding its own
+        # copy, so the test reads the real banner file and asserts the
+        # output equals it (with the token replaced).
+        (self.config_dir / ".i-have-adhd-always").touch()
+        banner_template = (
+            (ROOT / "hooks" / "banner.txt").read_text().rstrip("\r\n")
+        )
+        expected_flag = (self.config_dir / ".i-have-adhd-always").as_posix()
+        expected_banner = banner_template.replace("{{FLAG_PATH}}", expected_flag)
+
+        for name, command in self.runtimes():
+            with self.subTest(runtime=name):
+                result = self.run_hook(command)
+                self.assertEqual(0, result.returncode)
+                self.assertEqual("", result.stderr)
+                self.assertTrue(
+                    self.normalize(result.stdout).startswith(
+                        expected_banner + "\n\n"
+                    ),
+                    f"{name} did not emit the banner.txt text verbatim",
+                )
+
     def test_hook_is_silent_when_rules_file_is_missing(self):
         (self.plugin_root / "skills" / "i-have-adhd" / "rules.md").unlink()
         (self.config_dir / ".i-have-adhd-always").touch()

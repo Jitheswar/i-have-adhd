@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Regenerates skills/i-have-adhd/rules.md from skills/i-have-adhd/SKILL.md.
 //
-// This is the one place that parses the SKILL.md frontmatter. The four
-// injection adapters (hooks/always-on.mjs, hooks/always-on.sh,
-// hooks/always-on.ps1, extensions/i-have-adhd.ts) just read the generated
-// rules.md verbatim, so a frontmatter-parsing bug only needs fixing here.
+// This is the one place that parses the SKILL.md frontmatter. The five
+// entry points (hooks/always-on.mjs, hooks/always-on.sh,
+// hooks/always-on.ps1, extensions/i-have-adhd.ts,
+// scripts/render_gemini_command.py) just read the generated rules.md
+// verbatim, so a frontmatter-parsing bug only needs fixing here.
 //
-// Run after editing SKILL.md. CI fails if the checked-in rules.md drifts
-// from this script's output (.github/workflows/rules-sync-check.yml).
+// Run after editing SKILL.md. Pass --check to verify the checked-in
+// rules.md matches without writing it, the same --check convention
+// scripts/render_gemini_command.py and scripts/render_manifests.py use.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -33,4 +35,20 @@ if (!rules) {
   throw new Error(`Stripping frontmatter left no content: ${skillPath}`);
 }
 
-fs.writeFileSync(rulesPath, `${rules}\n`);
+const rendered = `${rules}\n`;
+
+if (process.argv.slice(2).includes("--check")) {
+  const current = fs.existsSync(rulesPath)
+    ? fs.readFileSync(rulesPath, "utf8")
+    : null;
+  if (current !== rendered) {
+    console.error(
+      `${rulesPath} is out of sync with ${skillPath}.\n` +
+        "Run: node scripts/generate_rules.mjs",
+    );
+    process.exit(1);
+  }
+  console.log("rules.md matches SKILL.md");
+} else {
+  fs.writeFileSync(rulesPath, rendered);
+}

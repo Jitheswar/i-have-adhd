@@ -18,14 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 RPC_TIMEOUT_SECONDS = 30
 
 
-def validate_package_manifest() -> None:
-    package = json.loads((ROOT / "package.json").read_text(encoding="utf8"))
-    assert package.get("pi") == {
-        "extensions": ["./extensions/i-have-adhd.ts"],
-        "skills": ["./skills"],
-    }
-
-
 class RpcClient:
     def __init__(self, env: dict[str, str], *args: str) -> None:
         self.stderr_file = tempfile.TemporaryFile(mode="w+t")
@@ -207,8 +199,18 @@ class Session:
 
     @property
     def status(self) -> str | None:
+        """The status the last command reported: text, or None if it cleared it.
+
+        Every command asserted on below is expected to report status, so a
+        command that emitted no setStatus at all is a failure rather than a
+        cleared status - otherwise `status is None` would pass vacuously.
+        """
         texts = _status_texts(self._last_events)
-        return texts[-1] if texts else None
+        if not texts:
+            raise AssertionError(
+                "expected a setStatus event for i-have-adhd, got none"
+            )
+        return texts[-1]
 
     @property
     def triggered_agent(self) -> bool:
@@ -272,8 +274,6 @@ def build_isolated_env(agent_dir: str) -> dict[str, str]:
 
 
 def main() -> None:
-    validate_package_manifest()
-
     with tempfile.TemporaryDirectory(prefix="i-have-adhd-pi-") as agent_dir:
         env = build_isolated_env(agent_dir)
         subprocess.run(
