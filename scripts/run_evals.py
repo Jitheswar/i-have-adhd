@@ -333,7 +333,23 @@ class Ledger:
         self._file.flush()
 
 
-def run_evaluations(config: RunConfig, runner: Runner | None = None) -> int:
+def build_runner(config: RunConfig) -> Runner:
+    """Build the provider runner the config describes.
+
+    Kept as its own function so the wiring - which JSON file, which runner
+    entry, which flags - is visible at the call site instead of hiding behind
+    a default parameter in run_evaluations.
+    """
+
+    runner_config = json.loads(config.runner_config.read_text(encoding="utf-8"))
+    return SubprocessRunner(
+        runner_config[config.runner],
+        retries=config.retries,
+        allow_unmetered=config.allow_unmetered,
+    )
+
+
+def run_evaluations(config: RunConfig, runner: Runner) -> int:
     cases = load_cases(config.cases)
     errors = validate_cases(cases)
     if errors:
@@ -341,14 +357,6 @@ def run_evaluations(config: RunConfig, runner: Runner | None = None) -> int:
     unknown = sorted(set(config.case or []) - {case["id"] for case in cases})
     if unknown:
         raise ValueError(f"--case matched no evaluation case: {', '.join(unknown)}")
-
-    if runner is None:
-        runner_config = json.loads(config.runner_config.read_text(encoding="utf-8"))
-        runner = SubprocessRunner(
-            runner_config[config.runner],
-            retries=config.retries,
-            allow_unmetered=config.allow_unmetered,
-        )
 
     with Ledger(
         config.output, condition=config.condition, runner=config.runner, budget_usd=config.budget_usd
@@ -417,21 +425,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "run":
-        return run_evaluations(
-            RunConfig(
-                cases=args.cases,
-                runner_config=args.runner_config,
-                runner=args.runner,
-                condition=args.condition,
-                condition_skill=args.condition_skill,
-                case=args.case,
-                trials=args.trials,
-                retries=args.retries,
-                budget_usd=args.budget_usd,
-                allow_unmetered=args.allow_unmetered,
-                output=args.output,
-            )
+        config = RunConfig(
+            cases=args.cases,
+            runner_config=args.runner_config,
+            runner=args.runner,
+            condition=args.condition,
+            condition_skill=args.condition_skill,
+            case=args.case,
+            trials=args.trials,
+            retries=args.retries,
+            budget_usd=args.budget_usd,
+            allow_unmetered=args.allow_unmetered,
+            output=args.output,
         )
+        return run_evaluations(config, build_runner(config))
     if args.command == "validate":
         errors = validate_cases(load_cases(args.cases))
         if errors:

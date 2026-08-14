@@ -152,13 +152,14 @@ class EvaluationHarnessTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(RuntimeError, "never reports dollar cost"):
-                run_evals.run_evaluations(config)
+                run_evals.build_runner(config)
 
             self.assertFalse(marker.exists(), "runner was invoked before the rejection")
             self.assertFalse((tmp_path / "out.jsonl").exists())
 
             config = dataclasses.replace(config, allow_unmetered=True)
-            self.assertEqual(0, run_evals.run_evaluations(config))
+            runner = run_evals.build_runner(config)
+            self.assertEqual(0, run_evals.run_evaluations(config, runner))
             self.assertTrue(marker.exists())
 
     def test_run_evaluations_skips_completed_and_records_new_via_recorded_runner(self):
