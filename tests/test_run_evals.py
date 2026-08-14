@@ -160,6 +160,66 @@ class EvaluationHarnessTest(unittest.TestCase):
             self.assertEqual(0, run_evals.run_evaluations(args))
             self.assertTrue(marker.exists())
 
+    def test_run_evaluations_skips_completed_and_records_new_via_recorded_runner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            output = tmp_path / "out.jsonl"
+            output.write_text(
+                json.dumps(
+                    {
+                        "case_id": "direct-answer",
+                        "trial": 1,
+                        "condition": "baseline",
+                        "runner": "recorded",
+                        "response": "prior",
+                        "usage": {},
+                        "cost_usd": 0.5,
+                    }
+                )
+                + "\n"
+            )
+            args = argparse.Namespace(
+                cases=ROOT / "evals" / "cases.jsonl",
+                runner_config=None,
+                runner="recorded",
+                condition="baseline",
+                condition_skill=None,
+                case=["direct-answer", "casual-message"],
+                trials=1,
+                retries=0,
+                budget_usd=1.0,
+                allow_unmetered=True,
+                output=output,
+            )
+            runner = self._RecordedRunner(
+                [run_evals.Response(text="hi", usage={}, cost_usd=0.1)]
+            )
+
+            result = run_evals.run_evaluations(args, runner=runner)
+
+            self.assertEqual(0, result)
+            self.assertEqual(1, len(runner.calls))
+            prompt, remaining_budget = runner.calls[0]
+            self.assertEqual("Thanks, that solved it.", prompt)
+            self.assertAlmostEqual(0.5, remaining_budget)
+
+            rows = run_evals.read_jsonl(output)
+            self.assertEqual(2, len(rows))
+            self.assertEqual("prior", rows[0]["response"])
+            self.assertEqual("casual-message", rows[1]["case_id"])
+            self.assertEqual("hi", rows[1]["response"])
+
+    class _RecordedRunner(run_evals.Runner):
+        """A canned Runner for tests: no subprocess, just plays back responses in order."""
+
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.calls = []
+
+        def invoke(self, prompt, *, remaining_budget):
+            self.calls.append((prompt, remaining_budget))
+            return self._responses.pop(0)
+
     def test_completed_keys_support_resuming_partial_runs(self):
         rows = [
             {
