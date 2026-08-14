@@ -2,6 +2,9 @@
 # i-have-adhd ruleset when the user has opted in by creating
 # $CLAUDE_CONFIG_DIR/.i-have-adhd-always (default ~/.claude).
 # Never blocks session start: any failure exits 0.
+#
+# Reads skills/i-have-adhd/rules.md verbatim: frontmatter parsing happens
+# once, at build time, in scripts/generate_rules.mjs.
 
 try {
   $claudeDir = if ($env:CLAUDE_CONFIG_DIR) {
@@ -16,30 +19,12 @@ try {
   }
 
   $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-  $skillPath = Join-Path $scriptDir "../skills/i-have-adhd/SKILL.md"
-  if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
+  $rulesPath = Join-Path $scriptDir "../skills/i-have-adhd/rules.md"
+  if (-not (Test-Path -LiteralPath $rulesPath -PathType Leaf)) {
     exit 0
   }
 
-  $lines = [System.IO.File]::ReadAllLines($skillPath)
-  $bodyStart = 0
-
-  if ($lines.Length -gt 0 -and $lines[0] -match '^---\s*$') {
-    # Only treat the block as frontmatter when the closing delimiter exists;
-    # an unterminated fence is not frontmatter, so keep the whole file.
-    for ($i = 1; $i -lt $lines.Length; $i++) {
-      if ($lines[$i] -match '^---\s*$') {
-        $bodyStart = $i + 1
-        break
-      }
-    }
-  }
-
-  $body = if ($bodyStart -lt $lines.Length) {
-    [string]::Join([Environment]::NewLine, $lines[$bodyStart..($lines.Length - 1)])
-  } else {
-    ""
-  }
+  $body = [System.IO.File]::ReadAllText($rulesPath).TrimEnd("`r", "`n")
 
   $banner = 'ADHD MODE ACTIVE (always-on). The ruleset below applies to every response. ' +
     '"stop adhd mode" turns it off for this session; delete '

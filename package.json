@@ -6,6 +6,9 @@
   "homepage": "https://github.com/ayghri/i-have-adhd",
   "private": true,
   "keywords": ["pi-package"],
+  "scripts": {
+    "generate:rules": "node scripts/generate_rules.mjs"
+  },
   "pi": {
     "extensions": ["./extensions/i-have-adhd.ts"],
     "skills": ["./skills"]

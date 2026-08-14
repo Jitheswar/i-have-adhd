@@ -8,12 +8,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
-const SKILL_PATH = join(
+const RULES_PATH = join(
   EXTENSION_DIR,
   "..",
   "skills",
   "i-have-adhd",
-  "SKILL.md",
+  "rules.md",
 );
 const STATE_ENTRY_TYPE = "i-have-adhd-state";
 const RULES_MESSAGE_TYPE = "i-have-adhd-rules";
@@ -30,30 +30,23 @@ type AdhdModeState = {
   enabled: boolean;
 };
 
-function stripFrontmatter(content: string): string {
-  return content
-    .replace(
-      /^---[^\S\r\n]*\r?\n[\s\S]*?\r?\n---[^\S\r\n]*(?:\r?\n|$)/,
-      "",
-    )
-    .trim();
-}
-
+// rules.md is generated from SKILL.md by scripts/generate_rules.mjs, which
+// is the single place frontmatter parsing happens. Read it verbatim here.
 function loadRules(): string {
   let content: string;
 
   try {
-    content = readFileSync(SKILL_PATH, "utf8");
+    content = readFileSync(RULES_PATH, "utf8");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Unable to load i-have-adhd rules from ${SKILL_PATH}: ${reason}`,
+      `Unable to load i-have-adhd rules from ${RULES_PATH}: ${reason}`,
     );
   }
 
-  const rules = stripFrontmatter(content);
+  const rules = content.trim();
   if (!rules) {
-    throw new Error(`The i-have-adhd rules file is empty: ${SKILL_PATH}`);
+    throw new Error(`The i-have-adhd rules file is empty: ${RULES_PATH}`);
   }
 
   return rules;
